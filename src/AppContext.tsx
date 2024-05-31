@@ -1,7 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import {
-  Accessor,
   JSX,
   Resource,
   Setter,
@@ -12,6 +11,12 @@ import {
 } from "solid-js";
 
 const socket = new WebSocket("ws://localhost:3000/ws");
+socket.addEventListener("message", async (event) => {
+  if (typeof event.data === "string")
+    throw new Error("Unexpected string as message event payload");
+
+  await invoke("process_message", event.data);
+});
 const [groups, { mutate: setGroups }] = createResource(
   async () => (await invoke("get_groups")) as string[]
 );

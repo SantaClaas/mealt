@@ -4,7 +4,7 @@ import { Route, Router } from "@solidjs/router";
 
 import "./styles.css";
 import App from "./App";
-import Groups from "./routes/Groups";
+import Group from "./routes/Group";
 import { SocketProvider } from "./AppContext";
 
 render(
@@ -12,7 +12,7 @@ render(
     <SocketProvider>
       <Router>
         <Route path="/" component={App} />
-        <Route path="/groups/:id" component={Groups} />
+        <Route path="/groups/:id" component={Group} />
       </Router>
     </SocketProvider>
   ),

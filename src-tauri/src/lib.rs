@@ -232,22 +232,6 @@ enum SendMessageError {
     ),
 }
 
-async fn send_message(
-    recipient: String,
-    message: MlsMessageOut,
-    client: &Client,
-) -> Result<(), SendMessageError> {
-    let message = message.tls_serialize_detached()?;
-    let response = client
-        .post(&format!("http://localhost:3000/messages/{}", recipient))
-        .body(message)
-        .send()
-        .await?;
-
-    response.error_for_status()?;
-    Ok(())
-}
-
 #[derive(Error, Debug, Serialize)]
 enum InvitePackageError {
     #[error("No user is signed in")]
@@ -280,6 +264,13 @@ enum InvitePackageError {
         #[serde(skip)]
         tls_codec::Error,
     ),
+
+    #[error("Error merging pending commit")]
+    MergePendingCommitError(
+        #[from]
+        #[serde(skip)]
+        MergePendingCommitError<MemoryKeyStoreError>,
+    ),
 }
 
 #[tauri::command]
@@ -305,6 +296,10 @@ async fn invite_package(
 
     let (mls_message_out, welcome_out, group_information) =
         group.add_members(state.backend.as_ref(), &user.signature_key, &[package])?;
+
+    //TODO check if commit needs to be synchronized with others
+    // Merge pending commit that adds the new member
+    group.merge_pending_commit(state.backend.as_ref())?;
 
     // Return welcome message to frontent to send over websockets to other clients
     let data = welcome_out.tls_serialize_detached()?;
@@ -340,6 +335,7 @@ const JOIN_GROUP_EVENT: &str = "join_group";
 struct JoinGroupEvent {
     group_id: String,
 }
+
 #[tauri::command]
 async fn process_message(
     data: Vec<u8>,
@@ -367,7 +363,7 @@ async fn process_message(
         return Ok(());
     }
 
-    todo!()
+    unimplemented!("Processing messages is not implemented yet");
 }
 
 #[tauri::command]
@@ -436,6 +432,7 @@ pub fn run() {
             create_user,
             get_groups,
             invite_package,
+            process_message,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

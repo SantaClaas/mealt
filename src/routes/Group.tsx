@@ -11,7 +11,7 @@ async function getPackagesIndex() {
   return (await response.json()) as string[];
 }
 
-export default function Groups() {
+export default function Group() {
   const parameters = useParams();
   const sendMessage = useWebSocket();
   const groupId = () => parameters.id;
