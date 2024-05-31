@@ -1,0 +1,7 @@
+{
+  "identifier": "i-guess-i-need-an-identifier-but-idk-what-to-put-here",
+  "description": "",
+  "local": true,
+  "windows": ["main"],
+  "permissions": ["event:default", "event:allow-listen"]
+}

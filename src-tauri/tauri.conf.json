@@ -8,7 +8,8 @@
     "beforeBuildCommand": "pnpm build",
     "frontendDist": "../dist"
   },
-  "app": {"windows": [
+  "app": {
+    "windows": [
       {
         "title": "mealt",
         "width": 800,
@@ -16,7 +17,8 @@
       }
     ],
     "security": {
-      "csp": null
+      "csp": null,
+      "capabilities": ["i-guess-i-need-an-identifier-but-idk-what-to-put-here"]
     }
   },
   "bundle": {

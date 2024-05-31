@@ -5,13 +5,16 @@ import { Route, Router } from "@solidjs/router";
 import "./styles.css";
 import App from "./App";
 import Groups from "./routes/Groups";
+import { SocketProvider } from "./AppContext";
 
 render(
   () => (
-    <Router>
-      <Route path="/" component={App} />
-      <Route path="/groups/:id" component={Groups} />
-    </Router>
+    <SocketProvider>
+      <Router>
+        <Route path="/" component={App} />
+        <Route path="/groups/:id" component={Groups} />
+      </Router>
+    </SocketProvider>
   ),
   document.body
 );

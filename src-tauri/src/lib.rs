@@ -1,12 +1,17 @@
 use base64::prelude::*;
 use openmls::prelude::*;
 use openmls_basic_credential::SignatureKeyPair;
-use openmls_rust_crypto::{MemoryKeyStore, MemoryKeyStoreError, OpenMlsRustCrypto};
+use openmls_rust_crypto::{MemoryKeyStoreError, OpenMlsRustCrypto};
 use reqwest::{Client, Method};
 use serde::Serialize;
-use std::sync::{Mutex, PoisonError};
-use tauri::{Manager, State};
+use std::{
+    collections::HashMap,
+    io::Read,
+    sync::{Arc, PoisonError},
+};
+use tauri::{AppHandle, Manager, State};
 use thiserror::Error;
+use tokio::sync::Mutex;
 // Disable dead code warnings for this file
 #[allow(dead_code)]
 pub(crate) const CIPHERSUITE: Ciphersuite =
@@ -18,16 +23,14 @@ struct User {
 }
 
 struct AppState {
-    backend: OpenMlsRustCrypto,
-    user: Mutex<Option<User>>,
-    groups: Mutex<Vec<MlsGroup>>,
+    backend: Arc<OpenMlsRustCrypto>,
+    user: Arc<Mutex<Option<User>>>,
+    groups: Arc<Mutex<HashMap<String, MlsGroup>>>,
     client: Client,
 }
 
 #[derive(Error, Debug, Serialize)]
 enum CreateUserError {
-    #[error("Could not access state")]
-    PoisonError(),
     #[error("User already exists")]
     UserExists,
     #[error("Error creating credentials for user")]
@@ -52,15 +55,9 @@ enum CreateUserError {
     ),
 }
 
-impl<T> From<PoisonError<T>> for CreateUserError {
-    fn from(_: PoisonError<T>) -> Self {
-        CreateUserError::PoisonError()
-    }
-}
-
 #[tauri::command]
-fn create_user(name: &str, state: State<AppState>) -> Result<(), CreateUserError> {
-    let mut state = state.user.lock()?;
+async fn create_user(name: &str, state: State<'_, AppState>) -> Result<(), CreateUserError> {
+    let mut state = state.user.lock().await;
     if state.is_some() {
         return Err(CreateUserError::UserExists);
     }
@@ -96,15 +93,13 @@ impl<T> From<PoisonError<T>> for IsAuthenticatedError {
 }
 
 #[tauri::command]
-fn is_authenticated(state: State<AppState>) -> Result<bool, IsAuthenticatedError> {
-    let state = state.user.lock()?;
+async fn is_authenticated(state: State<'_, AppState>) -> Result<bool, IsAuthenticatedError> {
+    let state = state.user.lock().await;
     Ok(state.is_some())
 }
 
 #[derive(Error, Debug, Serialize)]
 enum CreateGroupError {
-    #[error("Could not access state")]
-    PoisonError,
     #[error("No user is signed in")]
     NoUserError,
     #[error("Error creating group")]
@@ -113,8 +108,6 @@ enum CreateGroupError {
         #[serde(skip)]
         NewGroupError<MemoryKeyStoreError>,
     ),
-    #[error("Could not access groups")]
-    GroupsPoisonError,
 }
 
 #[derive(Error, Debug, Serialize)]
@@ -170,23 +163,15 @@ async fn advertise_key_package(
 
 #[derive(Error, Debug, Serialize)]
 enum AdvertiseError {
-    #[error("Could not access state")]
-    PoisonError,
     #[error("No user is signed in")]
     NoUserError,
     #[error("Error advertising key package")]
     AdvertiseKeyPackageError(#[from] AdvertiseKeyPackageError),
 }
 
-impl<T> From<PoisonError<T>> for AdvertiseError {
-    fn from(_: PoisonError<T>) -> Self {
-        AdvertiseError::PoisonError
-    }
-}
-
 #[tauri::command]
 async fn advertise(state: State<'_, AppState>) -> Result<(), AdvertiseError> {
-    let user = state.user.lock().map_err(|_| AdvertiseError::PoisonError)?;
+    let user = state.user.lock().await;
     let Some(user) = user.as_ref() else {
         return Err(AdvertiseError::NoUserError);
     };
@@ -198,15 +183,196 @@ async fn advertise(state: State<'_, AppState>) -> Result<(), AdvertiseError> {
         &state.client,
     )
     .await?;
+
+    Ok(())
+}
+#[derive(Error, Debug, Serialize)]
+enum GetPackageError {
+    #[error("Error getting package from server")]
+    RequestError(
+        #[from]
+        #[serde(skip)]
+        reqwest::Error,
+    ),
+    #[error("Error deserializing package")]
+    DeserializeError(
+        #[from]
+        #[serde(skip)]
+        tls_codec::Error,
+    ),
+}
+
+async fn get_package(id: &str, client: &Client) -> Result<KeyPackageIn, GetPackageError> {
+    let response = client
+        .get(&format!("http://localhost:3000/packages/{}", id))
+        .send()
+        .await?
+        .error_for_status()?;
+
+    //TODO directly stream bytes into deserializer without first buffering
+    let bytes = response.bytes().await?;
+    let package = KeyPackageIn::tls_deserialize(&mut bytes.as_ref())?;
+
+    Ok(package)
+}
+
+#[derive(Error, Debug, Serialize)]
+enum SendMessageError {
+    #[error("Error sending message")]
+    RequestError(
+        #[from]
+        #[serde(skip)]
+        reqwest::Error,
+    ),
+    #[error("Error serializing message")]
+    SerializeError(
+        #[from]
+        #[serde(skip)]
+        tls_codec::Error,
+    ),
+}
+
+async fn send_message(
+    recipient: String,
+    message: MlsMessageOut,
+    client: &Client,
+) -> Result<(), SendMessageError> {
+    let message = message.tls_serialize_detached()?;
+    let response = client
+        .post(&format!("http://localhost:3000/messages/{}", recipient))
+        .body(message)
+        .send()
+        .await?;
+
+    response.error_for_status()?;
+    Ok(())
+}
+
+#[derive(Error, Debug, Serialize)]
+enum InvitePackageError {
+    #[error("No user is signed in")]
+    NoUserError,
+    #[error("Group not found")]
+    GroupNotFound,
+    #[error("Error getting package from server")]
+    GetPackageError(
+        #[from]
+        #[serde(skip)]
+        GetPackageError,
+    ),
+    #[error("Error validating package")]
+    ValidatePackageError(
+        #[from]
+        #[serde(skip)]
+        KeyPackageVerifyError,
+    ),
+
+    #[error("Error adding member to group")]
+    AddMemberError(
+        #[from]
+        #[serde(skip)]
+        AddMembersError<MemoryKeyStoreError>,
+    ),
+
+    #[error("Error serializing welcome message")]
+    SerializeWelcomeError(
+        #[from]
+        #[serde(skip)]
+        tls_codec::Error,
+    ),
+}
+
+#[tauri::command]
+async fn invite_package(
+    group_id: &str,
+    package_id: &str,
+    state: State<'_, AppState>,
+) -> Result<Vec<u8>, InvitePackageError> {
+    let user = state.user.lock().await;
+    let Some(user) = user.as_ref() else {
+        return Err(InvitePackageError::NoUserError);
+    };
+
+    let mut groups = state.groups.lock().await;
+    let Some(group) = groups.get_mut(group_id) else {
+        return Err(InvitePackageError::GroupNotFound);
+    };
+
+    let package = get_package(package_id, &state.client).await?;
+
+    let backend = state.backend.crypto();
+    let package = package.validate(backend, ProtocolVersion::default())?;
+
+    let (mls_message_out, welcome_out, group_information) =
+        group.add_members(state.backend.as_ref(), &user.signature_key, &[package])?;
+
+    // Return welcome message to frontent to send over websockets to other clients
+    let data = welcome_out.tls_serialize_detached()?;
+
+    Ok(data)
+}
+
+#[derive(Error, Debug, Serialize)]
+enum ReceiveMessageError {
+    #[error("Error deserializing message")]
+    DeserializeError(
+        #[from]
+        #[serde(skip)]
+        tls_codec::Error,
+    ),
+    #[error("Error joining group")]
+    JoinGroupError(
+        #[from]
+        #[serde(skip)]
+        WelcomeError<MemoryKeyStoreError>,
+    ),
+    #[error("Error emitting event")]
+    EmitError(
+        #[from]
+        #[serde(skip)]
+        tauri::Error,
+    ),
+}
+
+const JOIN_GROUP_EVENT: &str = "join_group";
+
+#[derive(Serialize, Clone)]
+struct JoinGroupEvent {
+    group_id: String,
+}
+#[tauri::command]
+async fn process_message(
+    data: Vec<u8>,
+    state: State<'_, AppState>,
+    app: AppHandle,
+) -> Result<(), ReceiveMessageError> {
+    let message = MlsMessageIn::tls_deserialize(&mut data.as_slice())?;
+
+    if let MlsMessageInBody::Welcome(welcome) = message.extract() {
+        // Create group from welcome message
+        let group = MlsGroup::new_from_welcome(
+            state.backend.as_ref(),
+            &MlsGroupConfig::default(),
+            welcome,
+            None,
+        )?;
+
+        let id = group.group_id();
+        let id = BASE64_URL_SAFE_NO_PAD.encode(id.as_slice());
+
+        let mut groups = state.groups.lock().await;
+        groups.insert(id.clone(), group);
+
+        app.emit(JOIN_GROUP_EVENT, JoinGroupEvent { group_id: id })?;
+        return Ok(());
+    }
+
     todo!()
 }
 
 #[tauri::command]
-fn create_group(state: State<AppState>) -> Result<String, CreateGroupError> {
-    let user = state
-        .user
-        .lock()
-        .map_err(|_| CreateGroupError::PoisonError)?;
+async fn create_group(state: State<'_, AppState>) -> Result<String, CreateGroupError> {
+    let user = state.user.lock().await;
     let Some(user) = user.as_ref() else {
         return Err(CreateGroupError::NoUserError);
     };
@@ -216,7 +382,7 @@ fn create_group(state: State<AppState>) -> Result<String, CreateGroupError> {
         .build();
 
     let group = MlsGroup::new(
-        &state.backend,
+        &*state.backend,
         &user.signature_key,
         &group_configuration,
         user.credential.clone(),
@@ -225,44 +391,29 @@ fn create_group(state: State<AppState>) -> Result<String, CreateGroupError> {
     let id = group.group_id().as_slice();
     let id = BASE64_URL_SAFE_NO_PAD.encode(id);
 
-    let mut groups = state
-        .groups
-        .lock()
-        .map_err(|_| CreateGroupError::GroupsPoisonError)?;
-
-    groups.push(group);
+    let mut groups = state.groups.lock().await;
+    groups.insert(id.clone(), group);
 
     Ok(id)
 }
 
-#[derive(Error, Debug, Serialize)]
-enum GetGroupsError {
-    #[error("Could not access state")]
-    PoisonError,
-}
-
+//TODO check if I can contribute support for Infallible error to tauri
 #[tauri::command]
-fn get_groups(state: State<AppState>) -> Result<Vec<String>, GetGroupsError> {
-    let groups = state
-        .groups
-        .lock()
-        .map_err(|_| GetGroupsError::PoisonError)?;
+async fn get_groups(state: State<'_, AppState>) -> Result<Vec<String>, ()> {
+    let groups = state.groups.lock().await;
 
-    Ok(groups
-        .iter()
-        .map(|groups| BASE64_URL_SAFE_NO_PAD.encode(groups.group_id().as_slice()))
-        .collect())
+    let ids = groups.keys().cloned().collect();
 
-    // todo!()
+    Ok(ids)
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let client = Client::new();
     let state = AppState {
-        backend: OpenMlsRustCrypto::default(),
-        user: Mutex::new(None),
-        groups: Mutex::new(Vec::new()),
+        backend: OpenMlsRustCrypto::default().into(),
+        user: Arc::default(),
+        groups: Arc::default(),
         client,
     };
 
@@ -284,6 +435,7 @@ pub fn run() {
             create_group,
             create_user,
             get_groups,
+            invite_package,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
