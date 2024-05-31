@@ -11,6 +11,7 @@ use tokio::sync::{
 };
 
 struct UserActor {
+    id: String,
     receiver: mpsc::Receiver<UserActorMessage>,
     websocket: WebSocket,
     other_actors: Arc<Mutex<Vec<UserActorHandle>>>,
@@ -27,11 +28,13 @@ enum Instruction {
 
 impl UserActor {
     fn new(
+        id: String,
         websocket: WebSocket,
         receiver: mpsc::Receiver<UserActorMessage>,
         other_actors: Arc<Mutex<Vec<UserActorHandle>>>,
     ) -> Self {
         UserActor {
+            id,
             receiver,
             websocket,
             other_actors,
@@ -52,6 +55,9 @@ impl UserActor {
         let mut others = self.other_actors.lock().await;
         let mut dead_actors = Vec::new();
         for (index, other) in others.iter().enumerate() {
+            if other.id == self.id {
+                continue;
+            }
             //TODO use shared reference instead to avoid cloning of possibly large messages
             let result = other.send_message(binary.clone()).await;
             // Erros when channel is closed
@@ -87,6 +93,7 @@ impl UserActor {
 
 async fn run_my_actor(mut actor: UserActor) {
     tracing::debug!("Actor started");
+
     loop {
         tokio::select! {
             Some(message) = actor.receiver.recv() => {
@@ -110,18 +117,22 @@ async fn run_my_actor(mut actor: UserActor) {
 }
 
 pub(crate) struct UserActorHandle {
+    /// A simple unique identifier for the actor to distinguish it from others
+    /// The actor and actor handle share the same id
+    id: String,
     sender: mpsc::Sender<UserActorMessage>,
 }
 
 impl UserActorHandle {
     pub(crate) fn new(
+        id: String,
         websocket: WebSocket,
         other_actors: Arc<Mutex<Vec<UserActorHandle>>>,
     ) -> Self {
         let (sender, receiver) = mpsc::channel(8);
-        let actor = UserActor::new(websocket, receiver, other_actors);
+        let actor = UserActor::new(id.clone(), websocket, receiver, other_actors);
         tokio::spawn(run_my_actor(actor));
-        Self { sender }
+        Self { id, sender }
     }
 
     /// Errors when actor stopped receiving messages meaning the channel is closed and the actor is deceased

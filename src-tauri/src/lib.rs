@@ -1,3 +1,5 @@
+mod command;
+
 use base64::prelude::*;
 use openmls::prelude::*;
 use openmls_basic_credential::SignatureKeyPair;
@@ -12,8 +14,10 @@ use std::{
 use tauri::{AppHandle, Manager, State};
 use thiserror::Error;
 use tokio::sync::Mutex;
+
 // Disable dead code warnings for this file
 #[allow(dead_code)]
+
 pub(crate) const CIPHERSUITE: Ciphersuite =
     Ciphersuite::MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519;
 
@@ -27,57 +31,6 @@ struct AppState {
     user: Arc<Mutex<Option<User>>>,
     groups: Arc<Mutex<HashMap<String, MlsGroup>>>,
     client: Client,
-}
-
-#[derive(Error, Debug, Serialize)]
-enum CreateUserError {
-    #[error("User already exists")]
-    UserExists,
-    #[error("Error creating credentials for user")]
-    CredentialsError(
-        #[from]
-        #[serde(skip)]
-        CredentialError,
-    ),
-
-    #[error("Error creating signature key pair")]
-    SignatureKeyPairError(
-        #[from]
-        #[serde(skip)]
-        CryptoError,
-    ),
-
-    #[error("Error advertising key package on server")]
-    AdvertiseKeyPackageError(
-        #[from]
-        #[serde(skip)]
-        AdvertiseKeyPackageError,
-    ),
-}
-
-#[tauri::command]
-async fn create_user(name: &str, state: State<'_, AppState>) -> Result<(), CreateUserError> {
-    let mut state = state.user.lock().await;
-    if state.is_some() {
-        return Err(CreateUserError::UserExists);
-    }
-
-    let credential = Credential::new(name.into(), CredentialType::Basic)?;
-    let signature_key_pair = SignatureKeyPair::new(CIPHERSUITE.signature_algorithm())?;
-
-    let credential = CredentialWithKey {
-        credential,
-        signature_key: signature_key_pair.public().into(),
-    };
-
-    let user = User {
-        credential,
-        signature_key: signature_key_pair,
-    };
-
-    state.replace(user);
-
-    Ok(())
 }
 
 #[derive(Error, Debug, Serialize)]
@@ -294,14 +247,14 @@ async fn invite_package(
     let backend = state.backend.crypto();
     let package = package.validate(backend, ProtocolVersion::default())?;
 
-    let (mls_message_out, welcome_out, group_information) =
+    let (_mls_message_out, welcome_out, _group_information) =
         group.add_members(state.backend.as_ref(), &user.signature_key, &[package])?;
 
     //TODO check if commit needs to be synchronized with others
     // Merge pending commit that adds the new member
     group.merge_pending_commit(state.backend.as_ref())?;
 
-    // Return welcome message to frontent to send over websockets to other clients
+    // Return welcome message to frontend to send over websockets to other clients
     let data = welcome_out.tls_serialize_detached()?;
 
     Ok(data)
@@ -327,6 +280,16 @@ enum ReceiveMessageError {
         #[serde(skip)]
         tauri::Error,
     ),
+
+    //TODO Private message errors
+    #[error("Group not found")]
+    GroupNotFound,
+    #[error("Error processing message")]
+    ProcessMessageError(
+        #[from]
+        #[serde(skip)]
+        ProcessMessageError,
+    ),
 }
 
 const JOIN_GROUP_EVENT: &str = "join_group";
@@ -344,26 +307,52 @@ async fn process_message(
 ) -> Result<(), ReceiveMessageError> {
     let message = MlsMessageIn::tls_deserialize(&mut data.as_slice())?;
 
-    if let MlsMessageInBody::Welcome(welcome) = message.extract() {
-        // Create group from welcome message
-        let group = MlsGroup::new_from_welcome(
-            state.backend.as_ref(),
-            &MlsGroupConfig::default(),
-            welcome,
-            None,
-        )?;
+    let extract = message.extract();
+    match extract {
+        MlsMessageInBody::Welcome(welcome) => {
+            // Create group from welcome message
+            let group = MlsGroup::new_from_welcome(
+                state.backend.as_ref(),
+                &MlsGroupConfig::default(),
+                welcome,
+                None,
+            )?;
 
-        let id = group.group_id();
-        let id = BASE64_URL_SAFE_NO_PAD.encode(id.as_slice());
+            let id = group.group_id();
+            let id = BASE64_URL_SAFE_NO_PAD.encode(id.as_slice());
 
-        let mut groups = state.groups.lock().await;
-        groups.insert(id.clone(), group);
+            let mut groups = state.groups.lock().await;
+            groups.insert(id.clone(), group);
 
-        app.emit(JOIN_GROUP_EVENT, JoinGroupEvent { group_id: id })?;
-        return Ok(());
+            app.emit(JOIN_GROUP_EVENT, JoinGroupEvent { group_id: id })?;
+            Ok(())
+        },
+
+        MlsMessageInBody::PrivateMessage(message) => {
+            // Process the message
+            let protocol_message : ProtocolMessage = message.into();
+
+            let id = protocol_message.group_id();
+            let id = BASE64_URL_SAFE_NO_PAD.encode(id.as_slice());
+
+            let mut groups = state.groups.lock().await;
+            let Some(group) = groups.get_mut(&id) else {
+                return Err(ReceiveMessageError::GroupNotFound);
+            };
+
+            let processed_message = group.process_message(state.backend.as_ref(), protocol_message)?;
+            match processed_message.into_content() {
+                ProcessedMessageContent::ApplicationMessage(application_message) => {
+                    //TODO send message to frontend
+                    println!("Application message: {:?}", application_message);
+                },
+                _ => unimplemented!("Message processed but that type is not implemented yet"),
+            }
+            Ok(())
+        },
+        _ => unimplemented!("Processing messages is not implemented yet"),
     }
 
-    unimplemented!("Processing messages is not implemented yet");
 }
 
 #[tauri::command]
@@ -393,7 +382,6 @@ async fn create_group(state: State<'_, AppState>) -> Result<String, CreateGroupE
     Ok(id)
 }
 
-//TODO check if I can contribute support for Infallible error to tauri
 #[tauri::command]
 async fn get_groups(state: State<'_, AppState>) -> Result<Vec<String>, ()> {
     let groups = state.groups.lock().await;
@@ -401,6 +389,70 @@ async fn get_groups(state: State<'_, AppState>) -> Result<Vec<String>, ()> {
     let ids = groups.keys().cloned().collect();
 
     Ok(ids)
+}
+
+#[derive(Error, Debug, Serialize)]
+enum GetIdentityError {
+    #[error("No user is signed in")]
+    NoUserError,
+}
+
+#[tauri::command]
+async fn get_identity(state: State<'_, AppState>) -> Result<String, GetIdentityError> {
+    let user = state.user.lock().await;
+    let Some(user) = user.as_ref() else {
+        return Err(GetIdentityError::NoUserError);
+    };
+
+    let id = user.credential.credential.identity();
+    let id = BASE64_URL_SAFE_NO_PAD.encode(id);
+    Ok(id)
+}
+
+#[derive(Error, Debug, Serialize)]
+enum CreateMessageError {
+    #[error("No user is signed in")]
+    NoUserError,
+    #[error("Group not found")]
+    GroupNotFound,
+    #[error("Error creating message")]
+    CreateMessageError(
+        #[from]
+        #[serde(skip)]
+        openmls::group::CreateMessageError,
+    ),
+    #[error("Error serializing message")]
+    SerializeMessageError(
+        #[from]
+        #[serde(skip)]
+        tls_codec::Error,
+    ),
+}
+
+#[tauri::command]
+async fn create_message(
+    state: State<'_, AppState>,
+    group_id: &str,
+    message: &str,
+) -> Result<Vec<u8>, CreateMessageError> {
+    let user = state.user.lock().await;
+    let Some(user) = user.as_ref() else {
+        return Err(CreateMessageError::NoUserError);
+    };
+
+    let mut groups = state.groups.lock().await;
+    let Some(group) = groups.get_mut(group_id) else {
+        return Err(CreateMessageError::GroupNotFound);
+    };
+
+    let message = group.create_message(
+        state.backend.as_ref(),
+        &user.signature_key,
+        message.as_bytes(),
+    )?;
+
+    let data = message.tls_serialize_detached()?;
+    Ok(data)
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -427,10 +479,12 @@ pub fn run() {
         .plugin(tauri_plugin_shell::init())
         .invoke_handler(tauri::generate_handler![
             advertise,
-            is_authenticated,
             create_group,
-            create_user,
+            create_message,
+            command::create_user,
+            is_authenticated,
             get_groups,
+            get_identity,
             invite_package,
             process_message,
         ])

@@ -45,7 +45,7 @@ async fn main() {
             get(get_key_package_identities).post(create_key_package),
         )
         .route("/packages/:identity", get(get_key_package))
-        .route("/ws", get(websocket_handler))
+        .route("/:identity/messages", get(websocket_handler))
         .layer(
             CorsLayer::new()
                 .allow_origin("*".parse::<HeaderValue>().unwrap())
@@ -106,14 +106,16 @@ async fn get_key_package(
 }
 
 async fn websocket_handler(
+    Path(identity): Path<String>,
     websocket: WebSocketUpgrade,
     state: State<AppState>,
 ) -> impl IntoResponse {
-    websocket.on_upgrade(move |socket| create_actor(socket, state))
+    websocket.on_upgrade(move |socket| create_actor(socket, state, identity))
 }
 
 // 2/3e, duck2duck encryption, melt
-async fn create_actor(stream: WebSocket, State(state): State<AppState>) {
-    let actor = UserActorHandle::new(stream, state.user_actors.clone());
-    state.user_actors.lock().await.push(actor);
+async fn create_actor(stream: WebSocket, State(state): State<AppState>, identity: String) {
+    let actor = UserActorHandle::new(identity, stream, state.user_actors.clone());
+    let mut actors_guild = state.user_actors.lock().await;
+    actors_guild.push(actor);
 }

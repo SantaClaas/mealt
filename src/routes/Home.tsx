@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { For, Show, createResource, createSignal } from "solid-js";
-import { useAppState } from "./AppContext";
+import { useAppState } from "../AppContext";
 
 async function createUser(name: string) {
   await invoke("create_user", { name });
@@ -11,11 +11,11 @@ const isAuthenticated = async () =>
 
 const createGroup = async () => (await invoke("create_group")) as string;
 
-function App() {
+function Home() {
   const [isAuthenticatedResource, { refetch: refetchIsAuthenticated }] =
     createResource(isAuthenticated);
 
-  const { groups, setGroups } = useAppState();
+  const { groups, setGroups, identity, setIdentity } = useAppState();
 
   function handleSubmit(event: SubmitEvent) {
     event.preventDefault();
@@ -23,6 +23,7 @@ function App() {
     const name = event.target.name.value;
     createUser(name);
     refetchIsAuthenticated();
+    setIdentity(name);
   }
 
   async function handleCreateGroup() {
@@ -46,6 +47,7 @@ function App() {
       </Show>
 
       <Show when={isAuthenticatedResource()}>
+        <p>Your identity is {identity()}</p>
         <button onMouseDown={handleCreateGroup}>Create Group</button>
         <button onMouseDown={handleAdvertise}>Advertise</button>
         <ol>
@@ -62,4 +64,4 @@ function App() {
   );
 }
 
-export default App;
+export default Home;

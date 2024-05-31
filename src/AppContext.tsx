@@ -1,31 +1,77 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import {
+  Accessor,
   JSX,
   Resource,
   Setter,
   createContext,
+  createEffect,
   createResource,
+  createSignal,
   onCleanup,
   useContext,
 } from "solid-js";
 
-const socket = new WebSocket("ws://localhost:3000/ws");
-socket.addEventListener("message", async (event) => {
-  if (typeof event.data === "string")
-    throw new Error("Unexpected string as message event payload");
-
-  await invoke("process_message", event.data);
-});
 const [groups, { mutate: setGroups }] = createResource(
   async () => (await invoke("get_groups")) as string[]
 );
+
+const [identity, { mutate: setIdentity }] = createResource(
+  async () =>
+    (await invoke("get_identity").catch((error) => {
+      console.warn(
+        "Could not get identity. But this might be expected if this is the first time the app is run",
+        error
+      );
+      return undefined;
+    })) as string
+);
+
+async function handleMessage(event: MessageEvent) {
+  // Might remove redundant check later
+  if (typeof event.data === "string")
+    throw new Error("Unexpected string as message event payload");
+
+  const data = event.data;
+  if (!(data instanceof Blob))
+    throw new Error("Unexpected non-blob as message event payload");
+
+  //TODO find out how to pass the data as binary to tauri without going through serde
+  const buffer = await data.arrayBuffer();
+  const array = [...new Uint8Array(buffer)];
+
+  await invoke("process_message", { data: array });
+}
+const [socket, setSocket] = createSignal<WebSocket | undefined>();
+createEffect<WebSocket | undefined>((previous) => {
+  const id = identity();
+  if (id === undefined) return;
+
+  previous?.removeEventListener("message", handleMessage);
+  previous?.close();
+
+  const newSocket = new WebSocket(`ws://localhost:3000/${id}/messages`);
+  newSocket.addEventListener("message", handleMessage);
+  setSocket(newSocket);
+  return newSocket;
+}, socket());
+
 type AppState = {
-  socket: WebSocket;
+  identity: Resource<string>;
+  setIdentity: Setter<string | undefined>;
+  socket: Accessor<WebSocket | undefined>;
   groups: Resource<string[]>;
   setGroups: Setter<string[] | undefined>;
 };
-const state = { socket, groups, setGroups } satisfies AppState;
+
+const state = {
+  identity,
+  setIdentity,
+  socket,
+  groups,
+  setGroups,
+} satisfies AppState;
 const AppContext = createContext(state);
 
 export function SocketProvider(properties: { children: JSX.Element }) {
@@ -37,18 +83,19 @@ export function SocketProvider(properties: { children: JSX.Element }) {
 }
 
 export function useWebSocket(onmessage?: (event: MessageEvent) => any) {
-  const { socket: webSocket } = useContext(AppContext);
+  const { socket } = useContext(AppContext);
 
-  if (onmessage) {
-    webSocket.addEventListener("message", onmessage);
+  createEffect<WebSocket | undefined>((previous) => {
+    const current = socket();
+    if (onmessage === undefined || current === undefined) return current;
 
-    onCleanup(() => {
-      webSocket.removeEventListener("message", onmessage);
-    });
-  }
+    previous?.removeEventListener("message", onmessage);
+    current.addEventListener("message", onmessage);
+    return current;
+  }, socket());
 
   return (data: string | ArrayBufferLike | Blob | ArrayBufferView) =>
-    webSocket.send(data);
+    socket()?.send(data);
 }
 
 export const useAppState = () => useContext(AppContext);

@@ -1,7 +1,7 @@
 import { useParams } from "@solidjs/router";
 import { invoke } from "@tauri-apps/api/core";
 import { For, createResource } from "solid-js";
-import { useWebSocket } from "../AppContext";
+import { useAppState, useWebSocket } from "../AppContext";
 
 async function getPackagesIndex() {
   const response = await fetch(`http://localhost:3000/packages`);
@@ -17,6 +17,7 @@ export default function Group() {
   const groupId = () => parameters.id;
 
   const [packages] = createResource(getPackagesIndex);
+  const { identity } = useAppState();
 
   async function invitePackage(id: string) {
     if (!groupId()) return;
@@ -31,8 +32,26 @@ export default function Group() {
     const data = Uint8Array.from(message);
     sendMessage(data);
   }
+
+  async function handleMessageSubmit(event: SubmitEvent) {
+    event.preventDefault();
+
+    // @ts-ignore
+    const message = event.target.message.value;
+
+    const data = (await invoke("create_message", {
+      groupId: groupId(),
+      message,
+    })) as number[];
+
+    const buffer = Uint8Array.from(data);
+
+    sendMessage(buffer);
+  }
+
   return (
     <main>
+      <p>Your identity is {identity()}</p>
       <h1>Group {groupId()}</h1>
       <h2>Packages to invite</h2>
       <ol>
@@ -46,6 +65,13 @@ export default function Group() {
           )}
         </For>
       </ol>
+
+      <h2>Messages</h2>
+      <form onSubmit={handleMessageSubmit}>
+        <label for="message">Message</label>
+        <input type="text" name="message" id="message" />
+        <button type="submit">Send</button>
+      </form>
     </main>
   );
 }
