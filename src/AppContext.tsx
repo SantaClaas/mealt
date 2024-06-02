@@ -59,15 +59,6 @@ createEffect<WebSocket | undefined>((previous) => {
   return newSocket;
 }, socket());
 
-type AppState = {
-  identity: Resource<string>;
-  setIdentity: Setter<string | undefined>;
-  socket: Accessor<WebSocket | undefined>;
-  groups: Resource<string[]>;
-  setGroups: Setter<string[] | undefined>;
-  messages: Record<string, string[]>;
-};
-
 const state = {
   identity,
   setIdentity,
@@ -75,7 +66,9 @@ const state = {
   groups,
   setGroups,
   messages,
-} satisfies AppState;
+  setMessages,
+};
+
 const AppContext = createContext(state);
 
 export function SocketProvider(properties: { children: JSX.Element }) {
