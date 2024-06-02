@@ -1,0 +1,14 @@
+{% extends "layout.html" %} {% block title %} Home {% endblock %} {% block
+content %}
+<h1 class="text-3xl font-serif text-center ">Guest List</h1>
+
+
+{% if is_authenticated %}
+<a href="{{ crate::auth::USER_HOME_PAGE }}">My Apps</a><br />
+<a href="/signout">Sign out</a>
+{% else %}
+<a href="/signup">Sign up</a><br />
+<a href="/signin">Sign in</a> <br />
+{% endif %}
+{% call super() %}
+{% endblock %}
