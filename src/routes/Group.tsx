@@ -13,11 +13,12 @@ async function getPackagesIndex() {
 
 export default function Group() {
   const parameters = useParams();
+
   const sendMessage = useWebSocket();
   const groupId = () => parameters.id;
 
   const [packages] = createResource(getPackagesIndex);
-  const { identity } = useAppState();
+  const { identity, messages } = useAppState();
 
   async function invitePackage(id: string) {
     if (!groupId()) return;
@@ -26,8 +27,6 @@ export default function Group() {
       groupId: groupId(),
       packageId: id,
     })) as number[];
-
-    console.debug("invite", { message });
 
     const data = Uint8Array.from(message);
     sendMessage(data);
@@ -38,6 +37,7 @@ export default function Group() {
 
     // @ts-ignore
     const message = event.target.message.value;
+    (event.target as HTMLFormElement).reset();
 
     const data = (await invoke("create_message", {
       groupId: groupId(),
@@ -67,11 +67,14 @@ export default function Group() {
       </ol>
 
       <h2>Messages</h2>
+
       <form onSubmit={handleMessageSubmit}>
         <label for="message">Message</label>
         <input type="text" name="message" id="message" />
         <button type="submit">Send</button>
       </form>
+
+      <For each={messages[groupId()]}>{(message) => <p>{message}</p>}</For>
     </main>
   );
 }

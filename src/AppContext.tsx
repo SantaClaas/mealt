@@ -9,9 +9,9 @@ import {
   createEffect,
   createResource,
   createSignal,
-  onCleanup,
   useContext,
 } from "solid-js";
+import { createStore } from "solid-js/store";
 
 const [groups, { mutate: setGroups }] = createResource(
   async () => (await invoke("get_groups")) as string[]
@@ -27,6 +27,8 @@ const [identity, { mutate: setIdentity }] = createResource(
       return undefined;
     })) as string
 );
+
+const [messages, setMessages] = createStore<Record<string, string[]>>({});
 
 async function handleMessage(event: MessageEvent) {
   // Might remove redundant check later
@@ -63,6 +65,7 @@ type AppState = {
   socket: Accessor<WebSocket | undefined>;
   groups: Resource<string[]>;
   setGroups: Setter<string[] | undefined>;
+  messages: Record<string, string[]>;
 };
 
 const state = {
@@ -71,6 +74,7 @@ const state = {
   socket,
   groups,
   setGroups,
+  messages,
 } satisfies AppState;
 const AppContext = createContext(state);
 
@@ -100,15 +104,41 @@ export function useWebSocket(onmessage?: (event: MessageEvent) => any) {
 
 export const useAppState = () => useContext(AppContext);
 
-listen("join_group", (event) => {
+function getGroupId(payload: unknown): string {
   if (
-    typeof event.payload !== "object" ||
-    event.payload === null ||
-    !("group_id" in event.payload) ||
-    typeof event.payload.group_id !== "string"
+    typeof payload !== "object" ||
+    payload === null ||
+    !("group_id" in payload) ||
+    typeof payload.group_id !== "string"
   )
     throw new Error("Unexpected join group event payload");
 
-  const group = event.payload.group_id;
+  return payload.group_id;
+}
+
+function getMessage(payload: unknown): string {
+  if (
+    typeof payload !== "object" ||
+    payload === null ||
+    !("message" in payload) ||
+    typeof payload.message !== "string"
+  )
+    throw new Error("Unexpected new message event payload");
+
+  return payload.message;
+}
+
+listen("join_group", (event) => {
+  const group = getGroupId(event.payload);
   setGroups((groups) => (groups === undefined ? [group] : [...groups, group]));
+});
+
+listen("new_message", (event) => {
+  const groupId = getGroupId(event.payload);
+  const message = getMessage(event.payload);
+
+  //TODO check if using an object (/record) has perfomance impact compared to a map
+  setMessages(groupId, (messages) =>
+    messages ? [...messages, message] : [message]
+  );
 });

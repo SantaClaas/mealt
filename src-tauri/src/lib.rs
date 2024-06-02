@@ -11,6 +11,7 @@ use std::{
     io::Read,
     sync::{Arc, PoisonError},
 };
+use std::string::FromUtf8Error;
 use tauri::{AppHandle, Manager, State};
 use thiserror::Error;
 use tokio::sync::Mutex;
@@ -290,13 +291,26 @@ enum ReceiveMessageError {
         #[serde(skip)]
         ProcessMessageError,
     ),
+    #[error("Error deserializing message")]
+    DeserializeMessageError(
+        #[from]
+        #[serde(skip)]
+        FromUtf8Error,
+    ),
 }
 
 const JOIN_GROUP_EVENT: &str = "join_group";
+const NEW_MESSAGE_EVENT: &str = "new_message";
 
 #[derive(Serialize, Clone)]
 struct JoinGroupEvent {
     group_id: String,
+}
+
+#[derive(Serialize, Clone)]
+struct NewMessageEvent {
+    group_id: String,
+    message: String,
 }
 
 #[tauri::command]
@@ -333,22 +347,23 @@ async fn process_message(
             let protocol_message : ProtocolMessage = message.into();
 
             let id = protocol_message.group_id();
-            let id = BASE64_URL_SAFE_NO_PAD.encode(id.as_slice());
+            let group_id = BASE64_URL_SAFE_NO_PAD.encode(id.as_slice());
 
             let mut groups = state.groups.lock().await;
-            let Some(group) = groups.get_mut(&id) else {
+            let Some(group) = groups.get_mut(&group_id) else {
                 return Err(ReceiveMessageError::GroupNotFound);
             };
 
             let processed_message = group.process_message(state.backend.as_ref(), protocol_message)?;
             match processed_message.into_content() {
                 ProcessedMessageContent::ApplicationMessage(application_message) => {
-                    //TODO send message to frontend
-                    println!("Application message: {:?}", application_message);
+                    let message = String::from_utf8(application_message.into_bytes())?;
+                    app.emit(NEW_MESSAGE_EVENT, NewMessageEvent { group_id, message })?;
+
+                    return Ok(());
                 },
                 _ => unimplemented!("Message processed but that type is not implemented yet"),
             }
-            Ok(())
         },
         _ => unimplemented!("Processing messages is not implemented yet"),
     }
