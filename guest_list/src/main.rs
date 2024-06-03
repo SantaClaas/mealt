@@ -1,10 +1,12 @@
-use std::{env, net::Ipv4Addr, time::Duration};
 use std::env::VarError;
+use std::{env, net::Ipv4Addr, time::Duration};
 
 use crate::auth::authenticated_user::AuthenticatedUser;
+use crate::auth::USER_HOME_PAGE;
+use crate::secrets::Secrets;
 use askama_axum::{IntoResponse, Template};
-use axum::{extract::State, http::Uri, response::Redirect, routing::get, Form, Router, http};
 use axum::http::uri::InvalidUri;
+use axum::{extract::State, http, http::Uri, response::Redirect, routing::get, Form, Router};
 use dotenv::dotenv;
 use libsql::{named_params, Builder, Connection, Database};
 use serde::{self, Deserialize};
@@ -12,12 +14,10 @@ use thiserror::Error;
 use tower_http::services::ServeDir;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
-use crate::auth::USER_HOME_PAGE;
-use crate::secrets::Secrets;
 
 mod auth;
-mod email;
 mod database;
+mod email;
 mod routes;
 mod secrets;
 
@@ -45,7 +45,7 @@ async fn main() -> Result<(), Error> {
         .with(tracing_subscriber::fmt::layer())
         .init();
 
-   let secrets = secrets::get_secrets().await?;
+    let secrets = secrets::get_secrets().await?;
 
     // Set up database
     let connection = database::initialize_database().await;
@@ -92,14 +92,12 @@ async fn main() -> Result<(), Error> {
     Ok(())
 }
 
-
 #[derive(Clone)]
 pub(crate) struct Configuration {
     /// The server URL under which the server can be reached publicly for clients.
     /// A user clicking an email link will be brought to this URL.
     server_url: Uri,
 }
-
 
 #[derive(Clone)]
 pub(crate) struct AppState {
@@ -109,7 +107,6 @@ pub(crate) struct AppState {
     secrets: Secrets,
 }
 
-
 #[derive(Template)]
 #[template(path = "apps.html")]
 struct AppsTemplate {}
@@ -118,8 +115,7 @@ async fn get_apps_page(
     user: AuthenticatedUser,
     State(app_state): State<AppState>,
 ) -> impl IntoResponse {
-
-    let apps_template = AppsTemplate {  };
+    let apps_template = AppsTemplate {};
     apps_template
 }
 
@@ -131,6 +127,5 @@ async fn collect_garbage(connection: Connection) {
     loop {
         interval.tick().await;
         let now = time::OffsetDateTime::now_utc().unix_timestamp();
-
     }
 }

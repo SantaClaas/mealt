@@ -25,7 +25,7 @@ pub(crate) mod authenticated_user;
 const SESSION_LIFETIME: time::Duration = time::Duration::days(30);
 const SIGNIN_ATTEMPT_LIFETIME: time::Duration = time::Duration::minutes(15);
 
-pub(crate)const USER_HOME_PAGE: &str = "/apps";
+pub(crate) const USER_HOME_PAGE: &str = "/apps";
 
 #[derive(Deserialize, Debug)]
 struct CreateAccountRequest {
@@ -35,11 +35,11 @@ struct CreateAccountRequest {
 
 async fn create_account(
     State(AppState {
-              connection,
-              configuration,
-              client,
+        connection,
+        configuration,
+        client,
         secrets,
-          }): State<AppState>,
+    }): State<AppState>,
     Form(request): Form<CreateAccountRequest>,
 ) -> impl IntoResponse {
     //TODO check if user already exists
@@ -79,8 +79,8 @@ async fn create_account(
         configuration.server_url,
         secrets.resend_auth_token,
     )
-        .await
-        .unwrap();
+    .await
+    .unwrap();
 
     Redirect::to("/signup/completed")
 }
@@ -176,11 +176,11 @@ struct SignInRequest {
 
 async fn sign_in(
     State(AppState {
-              connection,
-              configuration,
-              client,
-        secrets
-          }): State<AppState>,
+        connection,
+        configuration,
+        client,
+        secrets,
+    }): State<AppState>,
     Form(request): Form<SignInRequest>,
 ) -> Redirect {
     // Get user id
@@ -226,8 +226,8 @@ async fn sign_in(
         configuration.server_url,
         secrets.resend_auth_token,
     )
-        .await
-        .unwrap();
+    .await
+    .unwrap();
 
     Redirect::to("/signin/completed")
 }

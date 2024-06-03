@@ -1,5 +1,5 @@
-use std::env;
 use libsql::{Builder, Connection, Database};
+use std::env;
 
 // Use local database for debugging
 #[cfg(debug_assertions)]
@@ -9,9 +9,8 @@ async fn create_database() -> Database {
 
 #[cfg(not(debug_assertions))]
 async fn create_database() -> Database {
-
-    let url =  todo!("Set up loading secrets from Bitwarden");
-    let token =  todo!("Set up loading secrets from Bitwarden");
+    let url = todo!("Set up loading secrets from Bitwarden");
+    let token = todo!("Set up loading secrets from Bitwarden");
 
     Builder::new_remote(url, token)
         .build()
@@ -21,7 +20,6 @@ async fn create_database() -> Database {
 
 /// Creates the database and initializes it with the tables
 pub(super) async fn initialize_database() -> Connection {
-
     let database = create_database().await;
 
     let connection = database.connect().unwrap();

@@ -1,7 +1,7 @@
-use std::sync::Arc;
 use axum::http::{uri, Uri};
 use reqwest::Client;
 use serde::Serialize;
+use std::sync::Arc;
 
 #[derive(Serialize, Debug)]
 struct SendEmailRequest {

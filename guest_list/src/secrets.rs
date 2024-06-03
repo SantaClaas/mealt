@@ -1,15 +1,17 @@
 // 🤫
 
-use std::sync::Arc;
 use bitwarden::auth::login::AccessTokenLoginRequest;
+use bitwarden::secrets_manager::secrets::{
+    SecretGetRequest, SecretIdentifiersRequest, SecretIdentifiersResponse,
+};
 use bitwarden::Client;
-use bitwarden::secrets_manager::secrets::{SecretGetRequest, SecretIdentifiersRequest, SecretIdentifiersResponse};
 use dotenv::dotenv;
+use std::sync::Arc;
 use thiserror::Error;
-use uuid::{Uuid, uuid};
+use uuid::{uuid, Uuid};
 
 #[derive(Debug, Error)]
-pub(super)enum GetSecretsError {
+pub(super) enum GetSecretsError {
     #[cfg(debug_assertions)]
     #[error("Error loading dotenv file")]
     DotEnvError(#[from] dotenv::Error),
@@ -21,9 +23,7 @@ pub(super)enum GetSecretsError {
     NoResendSecretId(std::env::VarError),
     #[error("Error parsing secret id. Is it a valid UUID?")]
     InvalidSecretId(#[from] uuid::Error),
-
 }
-
 
 #[derive(Clone)]
 pub(crate) struct Secrets {
@@ -45,12 +45,17 @@ pub(super) async fn get_secrets() -> Result<Secrets, GetSecretsError> {
     }
 
     let token = std::env::var("BWS_TOKEN").map_err(GetSecretsError::NoBwsToken)?;
-    let token = AccessTokenLoginRequest { access_token: token, state_file: None };
+    let token = AccessTokenLoginRequest {
+        access_token: token,
+        state_file: None,
+    };
     client.auth().login_access_token(&token).await?;
 
     // Ids are not a secret but should still be avoided to be shared where possible (obfuscation)
-    let resend_secret_id = std::env::var("BWS_RESEND_SECRET_ID").map_err(GetSecretsError::NoResendSecretId)?.parse::<Uuid>()?;
-    let request = SecretGetRequest{
+    let resend_secret_id = std::env::var("BWS_RESEND_SECRET_ID")
+        .map_err(GetSecretsError::NoResendSecretId)?
+        .parse::<Uuid>()?;
+    let request = SecretGetRequest {
         id: resend_secret_id,
     };
 
@@ -62,4 +67,3 @@ pub(super) async fn get_secrets() -> Result<Secrets, GetSecretsError> {
 
     Ok(secrets)
 }
-
