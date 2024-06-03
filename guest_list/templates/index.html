@@ -1,7 +1,6 @@
 {% extends "layout.html" %} {% block title %} Home {% endblock %} {% block
 content %}
-<h1 class="text-3xl font-serif text-center ">Guest List</h1>
-
+<h1 class="text-xl">Guest List</h1>
 
 {% if is_authenticated %}
 <a href="{{ crate::auth::USER_HOME_PAGE }}">My Apps</a><br />

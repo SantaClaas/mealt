@@ -1,0 +1,16 @@
+{
+  "name": "guest_list",
+  "version": "1.0.0",
+  "description": "",
+  "type": "module",
+  "scripts": {
+    "tailwindcss": "tailwindcss -i ./styles.css -o ./public/styles.css",
+    "watch": "tailwindcss -i ./styles.css -o ./public/styles.css --watch"
+  },
+  "keywords": [],
+  "author": "claas <hello@claas.dev>",
+  "license": "Apache-2.0",
+  "devDependencies": {
+    "tailwindcss": "^3.4.3"
+  }
+}
