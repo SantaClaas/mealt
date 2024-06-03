@@ -13,6 +13,7 @@ use tower_http::services::ServeDir;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 use crate::auth::USER_HOME_PAGE;
+use crate::secrets::Secrets;
 
 mod auth;
 mod email;
@@ -44,7 +45,7 @@ async fn main() -> Result<(), Error> {
         .with(tracing_subscriber::fmt::layer())
         .init();
 
-    secrets::get_secrets().await?;
+   let secrets = secrets::get_secrets().await?;
 
     // Set up database
     let connection = database::initialize_database().await;
@@ -66,6 +67,7 @@ async fn main() -> Result<(), Error> {
         connection,
         client,
         configuration,
+        secrets,
     };
 
     let auth_routes = auth::create_router();
@@ -98,18 +100,19 @@ pub(crate) struct Configuration {
     server_url: Uri,
 }
 
+
 #[derive(Clone)]
 pub(crate) struct AppState {
     connection: Connection,
     client: reqwest::Client,
     configuration: Configuration,
+    secrets: Secrets,
 }
 
 
 #[derive(Template)]
 #[template(path = "apps.html")]
-struct AppsTemplate {
-}
+struct AppsTemplate {}
 
 async fn get_apps_page(
     user: AuthenticatedUser,

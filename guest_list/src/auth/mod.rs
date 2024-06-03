@@ -38,6 +38,7 @@ async fn create_account(
               connection,
               configuration,
               client,
+        secrets,
           }): State<AppState>,
     Form(request): Form<CreateAccountRequest>,
 ) -> impl IntoResponse {
@@ -76,6 +77,7 @@ async fn create_account(
         &client,
         attempt_id,
         configuration.server_url,
+        secrets.resend_auth_token,
     )
         .await
         .unwrap();
@@ -177,6 +179,7 @@ async fn sign_in(
               connection,
               configuration,
               client,
+        secrets
           }): State<AppState>,
     Form(request): Form<SignInRequest>,
 ) -> Redirect {
@@ -221,6 +224,7 @@ async fn sign_in(
         &client,
         attempt_id,
         configuration.server_url,
+        secrets.resend_auth_token,
     )
         .await
         .unwrap();

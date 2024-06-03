@@ -1,3 +1,4 @@
+use std::sync::Arc;
 use axum::http::{uri, Uri};
 use reqwest::Client;
 use serde::Serialize;
@@ -17,6 +18,7 @@ pub(crate) async fn send_sign_in_email(
     client: &Client,
     sign_in_attempt_id: String,
     server_url: Uri,
+    resend_auth_token: Arc<str>,
 ) -> Result<(), reqwest::Error> {
     // Using resend.com
     let url = uri::Builder::from(server_url)
@@ -31,10 +33,9 @@ pub(crate) async fn send_sign_in_email(
         html: format!("<h1><a href=\"{}\">Sign in to your account</a></h1>", url).to_owned(),
     };
 
-    let token = todo!("Set up Bitwarden secrets");
     client
         .post("https://api.resend.com/emails")
-        .bearer_auth(token)
+        .bearer_auth(resend_auth_token)
         .json(&request)
         .send()
         .await?;
