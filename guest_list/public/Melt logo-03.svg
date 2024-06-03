@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg id="Layer_1" data-name="Layer 1" xmlns="http://www.w3.org/2000/svg" width="2048" height="2048" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 2048 2048">
+  <defs>
+    <radialGradient id="radial-gradient" cx="449.25" cy="322.53" fx="449.25" fy="322.53" r="2430.87" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#f97316"/>
+      <stop offset=".6" stop-color="#ed5f0e"/>
+      <stop offset="1" stop-color="#ea580c"/>
+    </radialGradient>
+    <filter id="drop-shadow-1" filterUnits="userSpaceOnUse">
+      <feOffset dx="0" dy="0"/>
+      <feGaussianBlur result="blur" stdDeviation="76"/>
+      <feFlood flood-color="#f97316" flood-opacity=".75"/>
+      <feComposite in2="blur" operator="in"/>
+      <feComposite in="SourceGraphic"/>
+    </filter>
+  </defs>
+<!--  <rect width="2048" height="2048" style="fill: #18181b; stroke-width: 0px;"/>-->
+  <path d="M0,0v621.86s164.05,677.87,400.85,669.12,198.2-310.87,424.85-485.54c168.4-129.78,391.25-170.14,499.9-95.98,116.58,79.57,191.18,440.23,108.04,651.89-161.63,411.45,82.7,430.75,153.83,427.57,75.48-3.37,296.71-102.14,132.88-440.58-95.54-197.37,28.41-504.22,114.84-618.26,83.77-110.54,212.82-172.98,212.82-172.98V0" style="fill: url(#radial-gradient); filter: url(#drop-shadow-1); stroke-width: 0px;"/>
+</svg>

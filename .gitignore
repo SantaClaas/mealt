@@ -2,3 +2,4 @@ node_modules
 dist
 .idea/
 target/
+.DS_Store
